@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-config
+data:
+  POSTGRES_HOST: "circleguard-postgres"
+  POSTGRES_PORT: "5432"
+  KAFKA_BOOTSTRAP: "circleguard-kafka:9092"
+  REDIS_HOST: "circleguard-redis"
+  REDIS_PORT: "6379"
+  NEO4J_URI: "bolt://circleguard-neo4j:7687"
+  LDAP_URL: "ldap://circleguard-ldap:389"
+  JWT_SECRET: "my-super-secret-dev-key-32-chars-long-12345678"
+  JWT_EXPIRATION: "3600000"
+  QR_SECRET: "my-qr-secret-key-for-dev-1234567890"
+  QR_EXPIRATION: "300000"
