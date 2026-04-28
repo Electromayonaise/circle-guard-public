@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-service
+  template:
+    metadata:
+      labels:
+        app: gateway-service
+    spec:
+      containers:
+        - name: gateway-service
+          image: localhost:5000/circleguard-gateway:latest
+          ports:
+            - containerPort: 8087
+          envFrom:
+            - configMapRef:
+                name: circleguard-config
+          env:
+            - name: SPRING_DATA_REDIS_HOST
+              value: "$(REDIS_HOST)"
+            - name: SPRING_DATA_REDIS_PORT
+              value: "$(REDIS_PORT)"
+            - name: QR_SECRET
+              valueFrom:
+                configMapKeyRef:
+                  name: circleguard-config
+                  key: QR_SECRET
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8087
+            initialDelaySeconds: 30
+            periodSeconds: 10

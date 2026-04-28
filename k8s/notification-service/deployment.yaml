@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: localhost:5000/circleguard-notification:latest
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: circleguard-config
+          env:
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "$(KAFKA_BOOTSTRAP)"
+            - name: AUTH_API_URL
+              value: "http://auth-service:8180"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 10

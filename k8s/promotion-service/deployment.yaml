@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promotion-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promotion-service
+  template:
+    metadata:
+      labels:
+        app: promotion-service
+    spec:
+      containers:
+        - name: promotion-service
+          image: localhost:5000/circleguard-promotion:latest
+          ports:
+            - containerPort: 8088
+          envFrom:
+            - configMapRef:
+                name: circleguard-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://$(POSTGRES_HOST):$(POSTGRES_PORT)/circleguard_promotion"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "admin"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "password"
+            - name: SPRING_NEO4J_URI
+              value: "$(NEO4J_URI)"
+            - name: SPRING_NEO4J_AUTHENTICATION_USERNAME
+              value: "neo4j"
+            - name: SPRING_NEO4J_AUTHENTICATION_PASSWORD
+              value: "password"
+            - name: SPRING_DATA_REDIS_HOST
+              value: "$(REDIS_HOST)"
+            - name: SPRING_DATA_REDIS_PORT
+              value: "$(REDIS_PORT)"
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "$(KAFKA_BOOTSTRAP)"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8088
+            initialDelaySeconds: 45
+            periodSeconds: 10
