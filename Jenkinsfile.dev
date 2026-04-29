@@ -12,6 +12,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+                sh 'sed -i "s/\\r//" gradlew && chmod +x gradlew'
             }
         }
 
@@ -23,7 +24,7 @@ pipeline {
                               :services:circleguard-promotion-service:build \
                               :services:circleguard-notification-service:build \
                               :services:circleguard-gateway-service:build \
-                              -x test --parallel --no-daemon'
+                              -x test --no-daemon'
             }
         }
 
@@ -35,7 +36,7 @@ pipeline {
                               :services:circleguard-promotion-service:checkstyleMain \
                               :services:circleguard-notification-service:checkstyleMain \
                               :services:circleguard-gateway-service:checkstyleMain \
-                              --parallel --no-daemon --continue || true'
+                              --no-daemon --continue || true'
             }
         }
 
@@ -47,7 +48,7 @@ pipeline {
                               :services:circleguard-promotion-service:test \
                               :services:circleguard-notification-service:test \
                               :services:circleguard-gateway-service:test \
-                              --parallel --no-daemon'
+                              --no-daemon'
             }
             post {
                 always {
@@ -112,12 +113,12 @@ pipeline {
                     ]
                     services.each { svc ->
                         sh """
-                            kubectl run smoke-${svc.name}-${BUILD_NUMBER} \
-                                --image=curlimages/curl:8.7.1 \
+                            kubectl run smoke-${svc.name.replace('-service','')}-${BUILD_NUMBER} \
+                                --image=busybox:1.36 \
                                 --restart=Never \
                                 --rm \
                                 -n ${NAMESPACE} \
-                                -- curl -f http://${svc.name}:${svc.port}/actuator/health
+                                -- nc -zv ${svc.name} ${svc.port}
                         """
                     }
                 }

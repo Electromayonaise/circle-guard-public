@@ -10,7 +10,10 @@ pipeline {
 
     stages {
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+                sh 'sed -i "s/\\r//" gradlew && chmod +x gradlew'
+            }
         }
 
         stage('Compute Version') {
@@ -52,7 +55,7 @@ pipeline {
                               :services:circleguard-promotion-service:build \
                               :services:circleguard-notification-service:build \
                               :services:circleguard-gateway-service:build \
-                              --parallel --no-daemon'
+                              --no-daemon'
             }
         }
 
@@ -64,7 +67,7 @@ pipeline {
                               :services:circleguard-promotion-service:test \
                               :services:circleguard-notification-service:test \
                               :services:circleguard-gateway-service:test \
-                              --parallel --no-daemon'
+                              --no-daemon'
             }
             post {
                 always { junit '**/build/test-results/test/*.xml' }
