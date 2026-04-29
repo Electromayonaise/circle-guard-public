@@ -28,8 +28,7 @@ spec:
             - name: SPRING_DATASOURCE_PASSWORD
               value: "password"
           readinessProbe:
-            httpGet:
-              path: /actuator/health
+            tcpSocket:
               port: 8083
             initialDelaySeconds: 30
             periodSeconds: 10

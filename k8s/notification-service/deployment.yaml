@@ -26,8 +26,7 @@ spec:
             - name: AUTH_API_URL
               value: "http://auth-service:8180"
           readinessProbe:
-            httpGet:
-              path: /actuator/health
+            tcpSocket:
               port: 8082
             initialDelaySeconds: 30
             periodSeconds: 10

@@ -40,8 +40,7 @@ spec:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "$(KAFKA_BOOTSTRAP)"
           readinessProbe:
-            httpGet:
-              path: /actuator/health
+            tcpSocket:
               port: 8088
             initialDelaySeconds: 45
             periodSeconds: 10

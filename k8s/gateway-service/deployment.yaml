@@ -31,8 +31,7 @@ spec:
                   name: circleguard-config
                   key: QR_SECRET
           readinessProbe:
-            httpGet:
-              path: /actuator/health
+            tcpSocket:
               port: 8087
             initialDelaySeconds: 30
             periodSeconds: 10

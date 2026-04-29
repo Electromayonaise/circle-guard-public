@@ -38,8 +38,7 @@ spec:
                   name: circleguard-config
                   key: JWT_EXPIRATION
           readinessProbe:
-            httpGet:
-              path: /actuator/health
+            tcpSocket:
               port: 8180
             initialDelaySeconds: 30
             periodSeconds: 10
