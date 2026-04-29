@@ -1,0 +1,250 @@
+pipeline {
+    agent any
+
+    environment {
+        REGISTRY  = "localhost:5000"
+        NAMESPACE = "master"
+        VERSION   = ""
+        IMAGE_TAG = ""
+    }
+
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Compute Version') {
+            steps {
+                script {
+                    def lastTag = sh(script: "git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0.0'", returnStdout: true).trim()
+                    def parts = lastTag.replaceAll('v', '').tokenize('.')
+                    def major = parts[0]
+                    def minor = parts[1]
+                    def patch = parts[2]
+                    def commitsSinceTag = sh(script: "git log ${lastTag}..HEAD --oneline", returnStdout: true).trim()
+
+                    boolean hasBreaking = commitsSinceTag.contains('BREAKING CHANGE')
+                    boolean hasFeat     = (commitsSinceTag =~ /feat(\(.+\))?:/).asBoolean()
+                    boolean hasFix      = (commitsSinceTag =~ /fix(\(.+\))?:/).asBoolean()
+
+                    if (hasBreaking) {
+                        major = (major.toInteger() + 1).toString(); minor = "0"; patch = "0"
+                    } else if (hasFeat) {
+                        minor = (minor.toInteger() + 1).toString(); patch = "0"
+                    } else {
+                        patch = (patch.toInteger() + 1).toString()
+                    }
+
+                    VERSION   = "v${major}.${minor}.${patch}"
+                    IMAGE_TAG = VERSION
+                    env.VERSION   = VERSION
+                    env.IMAGE_TAG = IMAGE_TAG
+                    echo "Computed version: ${VERSION}"
+                }
+            }
+        }
+
+        stage('Build & Static Analysis') {
+            steps {
+                sh './gradlew :services:circleguard-auth-service:build \
+                              :services:circleguard-identity-service:build \
+                              :services:circleguard-form-service:build \
+                              :services:circleguard-promotion-service:build \
+                              :services:circleguard-notification-service:build \
+                              :services:circleguard-gateway-service:build \
+                              --parallel --no-daemon'
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                sh './gradlew :services:circleguard-auth-service:test \
+                              :services:circleguard-identity-service:test \
+                              :services:circleguard-form-service:test \
+                              :services:circleguard-promotion-service:test \
+                              :services:circleguard-notification-service:test \
+                              :services:circleguard-gateway-service:test \
+                              --parallel --no-daemon'
+            }
+            post {
+                always { junit '**/build/test-results/test/*.xml' }
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                script {
+                    def services = [
+                        [name: 'auth',         dockerfile: 'docker/Dockerfile.auth'],
+                        [name: 'identity',     dockerfile: 'docker/Dockerfile.identity'],
+                        [name: 'form',         dockerfile: 'docker/Dockerfile.form'],
+                        [name: 'promotion',    dockerfile: 'docker/Dockerfile.promotion'],
+                        [name: 'notification', dockerfile: 'docker/Dockerfile.notification'],
+                        [name: 'gateway',      dockerfile: 'docker/Dockerfile.gateway']
+                    ]
+                    services.each { svc ->
+                        def image = "${REGISTRY}/circleguard-${svc.name}:${env.VERSION}"
+                        sh "docker build -f ${svc.dockerfile} -t ${image} ."
+                        sh "docker push ${image}"
+                        sh "docker tag ${image} ${REGISTRY}/circleguard-${svc.name}:latest"
+                        sh "docker push ${REGISTRY}/circleguard-${svc.name}:latest"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Master') {
+            steps {
+                script {
+                    sh "kubectl apply -f k8s/configmap.yaml -n ${NAMESPACE}"
+                    def services = ['auth', 'identity', 'form', 'promotion', 'notification', 'gateway']
+                    services.each { svc ->
+                        sh """
+                            kubectl set image deployment/${svc}-service \
+                                ${svc}-service=${REGISTRY}/circleguard-${svc}:${env.VERSION} \
+                                -n ${NAMESPACE} 2>/dev/null || \
+                            kubectl apply -f k8s/${svc}-service/ -n ${NAMESPACE}
+                            kubectl scale deployment/${svc}-service --replicas=2 -n ${NAMESPACE} || true
+                        """
+                    }
+                    sh "kubectl rollout status deployment/auth-service -n ${NAMESPACE} --timeout=180s"
+                    sh "kubectl rollout status deployment/promotion-service -n ${NAMESPACE} --timeout=240s"
+                    sh "kubectl rollout status deployment/notification-service -n ${NAMESPACE} --timeout=180s"
+                }
+            }
+        }
+
+        stage('System Tests') {
+            steps {
+                script {
+                    sh "kubectl port-forward svc/auth-service 8180:8180 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/form-service 8086:8086 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/gateway-service 8087:8087 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/promotion-service 8088:8088 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/notification-service 8082:8082 -n ${NAMESPACE} &"
+                    sh "sleep 8"
+
+                    sh './gradlew :services:circleguard-gateway-service:test \
+                                  --tests "com.circleguard.gateway.service.JwtGatewayValidationIntegrationTest" \
+                                  --tests "com.circleguard.gateway.service.QrStatusCacheIntegrationTest" \
+                                  --no-daemon'
+                    sh './gradlew :services:circleguard-promotion-service:test \
+                                  --tests "com.circleguard.promotion.listener.SurveyKafkaIntegrationTest" \
+                                  --no-daemon'
+
+                    sh 'cd tests/e2e && pip install -r requirements.txt -q && pytest . -v --html=e2e_master_report.html --self-contained-html'
+                }
+            }
+            post {
+                always {
+                    junit '**/build/test-results/test/*.xml'
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'tests/e2e',
+                        reportFiles: 'e2e_master_report.html',
+                        reportName: 'E2E Test Report - Master'
+                    ])
+                    sh "pkill -f 'kubectl port-forward' || true"
+                }
+            }
+        }
+
+        stage('Performance Tests') {
+            steps {
+                script {
+                    sh "kubectl port-forward svc/auth-service 8180:8180 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/form-service 8086:8086 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/gateway-service 8087:8087 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/promotion-service 8088:8088 -n ${NAMESPACE} &"
+                    sh "sleep 5"
+
+                    sh 'cd tests/performance && pip install locust==2.28.0 -q && locust -f locustfile.py --headless --users 100 --spawn-rate 10 --run-time 5m --html locust_master_report.html --csv locust_master_results --exit-code-on-error 1'
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'tests/performance',
+                        reportFiles: 'locust_master_report.html',
+                        reportName: 'Performance Report - Master'
+                    ])
+                    sh "pkill -f 'kubectl port-forward' || true"
+                }
+            }
+        }
+
+        stage('Generate Release Notes') {
+            steps {
+                script {
+                    def lastTag = sh(
+                        script: "git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD",
+                        returnStdout: true
+                    ).trim()
+
+                    def rawLog = sh(
+                        script: "git log ${lastTag}..HEAD --pretty=format:'%s' --no-merges",
+                        returnStdout: true
+                    ).trim()
+
+                    def features = []
+                    def fixes    = []
+                    def breaking = []
+                    def other    = []
+
+                    rawLog.split('\n').each { line ->
+                        if (line =~ /^feat(\(.+\))?:/)       features << "- ${line}"
+                        else if (line =~ /^fix(\(.+\))?:/)   fixes << "- ${line}"
+                        else if (line.contains('BREAKING'))  breaking << "- ${line}"
+                        else if (line.trim())                other << "- ${line}"
+                    }
+
+                    def date = sh(script: "date '+%Y-%m-%d'", returnStdout: true).trim()
+
+                    def notes = "# Release Notes -- ${env.VERSION}\n\n" +
+                        "**Release Date:** ${date}\n" +
+                        "**Environment:** master\n" +
+                        "**Build:** #${BUILD_NUMBER}\n\n" +
+                        "## Breaking Changes\n" +
+                        "${breaking ? breaking.join('\n') : '_None_'}\n\n" +
+                        "## New Features\n" +
+                        "${features ? features.join('\n') : '_None_'}\n\n" +
+                        "## Bug Fixes\n" +
+                        "${fixes ? fixes.join('\n') : '_None_'}\n\n" +
+                        "## Other Changes\n" +
+                        "${other ? other.join('\n') : '_None_'}\n\n" +
+                        "---\n" +
+                        "*Generated automatically by Jenkins CI/CD Pipeline*\n" +
+                        "*Follows Conventional Commits + Semantic Versioning (SemVer)*\n"
+
+                    writeFile file: 'RELEASE_NOTES.md', text: notes
+                    archiveArtifacts artifacts: 'RELEASE_NOTES.md', fingerprint: true
+                    echo "Release notes generated for version ${env.VERSION}"
+                }
+            }
+        }
+
+        stage('Tag Release') {
+            steps {
+                sh """
+                    git config user.email "jenkins@circleguard.local"
+                    git config user.name "Jenkins CI"
+                    git tag -a ${env.VERSION} -m "Release ${env.VERSION} -- Build #${BUILD_NUMBER}"
+                    git push origin ${env.VERSION} || echo "Push tag requires remote access"
+                """
+            }
+        }
+    }
+
+    post {
+        failure { echo "MASTER pipeline FAILED on build ${BUILD_NUMBER}" }
+        success {
+            echo "MASTER pipeline SUCCESS -- Released ${env.VERSION}"
+            archiveArtifacts artifacts: 'tests/performance/locust_master_results*.csv', fingerprint: true
+        }
+    }
+}

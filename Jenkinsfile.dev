@@ -1,0 +1,136 @@
+pipeline {
+    agent any
+
+    environment {
+        REGISTRY   = "localhost:5000"
+        NAMESPACE  = "dev"
+        SERVICES   = "auth identity form promotion notification gateway"
+        IMAGE_TAG  = "dev-${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh './gradlew :services:circleguard-auth-service:build \
+                              :services:circleguard-identity-service:build \
+                              :services:circleguard-form-service:build \
+                              :services:circleguard-promotion-service:build \
+                              :services:circleguard-notification-service:build \
+                              :services:circleguard-gateway-service:build \
+                              -x test --parallel --no-daemon'
+            }
+        }
+
+        stage('Static Analysis') {
+            steps {
+                sh './gradlew :services:circleguard-auth-service:checkstyleMain \
+                              :services:circleguard-identity-service:checkstyleMain \
+                              :services:circleguard-form-service:checkstyleMain \
+                              :services:circleguard-promotion-service:checkstyleMain \
+                              :services:circleguard-notification-service:checkstyleMain \
+                              :services:circleguard-gateway-service:checkstyleMain \
+                              --parallel --no-daemon --continue || true'
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                sh './gradlew :services:circleguard-auth-service:test \
+                              :services:circleguard-identity-service:test \
+                              :services:circleguard-form-service:test \
+                              :services:circleguard-promotion-service:test \
+                              :services:circleguard-notification-service:test \
+                              :services:circleguard-gateway-service:test \
+                              --parallel --no-daemon'
+            }
+            post {
+                always {
+                    junit '**/build/test-results/test/*.xml'
+                }
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                script {
+                    def services = [
+                        [name: 'auth',         dockerfile: 'docker/Dockerfile.auth'],
+                        [name: 'identity',     dockerfile: 'docker/Dockerfile.identity'],
+                        [name: 'form',         dockerfile: 'docker/Dockerfile.form'],
+                        [name: 'promotion',    dockerfile: 'docker/Dockerfile.promotion'],
+                        [name: 'notification', dockerfile: 'docker/Dockerfile.notification'],
+                        [name: 'gateway',      dockerfile: 'docker/Dockerfile.gateway']
+                    ]
+                    services.each { svc ->
+                        def image = "${REGISTRY}/circleguard-${svc.name}:${IMAGE_TAG}"
+                        sh "docker build -f ${svc.dockerfile} -t ${image} ."
+                        sh "docker push ${image}"
+                        sh "docker tag ${image} ${REGISTRY}/circleguard-${svc.name}:dev-latest"
+                        sh "docker push ${REGISTRY}/circleguard-${svc.name}:dev-latest"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Dev') {
+            steps {
+                script {
+                    sh "kubectl apply -f k8s/configmap.yaml -n ${NAMESPACE}"
+                    def services = ['auth', 'identity', 'form', 'promotion', 'notification', 'gateway']
+                    services.each { svc ->
+                        sh """
+                            kubectl set image deployment/${svc}-service \
+                                ${svc}-service=${REGISTRY}/circleguard-${svc}:${IMAGE_TAG} \
+                                -n ${NAMESPACE} 2>/dev/null || \
+                            kubectl apply -f k8s/${svc}-service/ -n ${NAMESPACE}
+                        """
+                    }
+                    sh "kubectl rollout status deployment/auth-service -n ${NAMESPACE} --timeout=120s"
+                    sh "kubectl rollout status deployment/form-service -n ${NAMESPACE} --timeout=120s"
+                    sh "kubectl rollout status deployment/promotion-service -n ${NAMESPACE} --timeout=180s"
+                    sh "kubectl rollout status deployment/gateway-service -n ${NAMESPACE} --timeout=120s"
+                }
+            }
+        }
+
+        stage('Smoke Tests') {
+            steps {
+                script {
+                    def services = [
+                        [name: 'auth-service',         port: 8180],
+                        [name: 'identity-service',     port: 8083],
+                        [name: 'form-service',         port: 8086],
+                        [name: 'promotion-service',    port: 8088],
+                        [name: 'notification-service', port: 8082],
+                        [name: 'gateway-service',      port: 8087]
+                    ]
+                    services.each { svc ->
+                        sh """
+                            kubectl run smoke-${svc.name}-${BUILD_NUMBER} \
+                                --image=curlimages/curl:8.7.1 \
+                                --restart=Never \
+                                --rm \
+                                -n ${NAMESPACE} \
+                                -- curl -f http://${svc.name}:${svc.port}/actuator/health
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo "Dev pipeline FAILED on build ${BUILD_NUMBER}"
+        }
+        success {
+            echo "Dev pipeline SUCCESS - image tag: ${IMAGE_TAG}"
+        }
+    }
+}

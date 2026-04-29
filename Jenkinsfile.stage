@@ -1,0 +1,140 @@
+pipeline {
+    agent any
+
+    environment {
+        REGISTRY  = "localhost:5000"
+        NAMESPACE = "stage"
+        IMAGE_TAG = "stage-${BUILD_NUMBER}"
+        BASE_URL  = "http://localhost"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Build & Unit Tests') {
+            steps {
+                sh './gradlew :services:circleguard-auth-service:build \
+                              :services:circleguard-identity-service:build \
+                              :services:circleguard-form-service:build \
+                              :services:circleguard-promotion-service:build \
+                              :services:circleguard-notification-service:build \
+                              :services:circleguard-gateway-service:build \
+                              --parallel --no-daemon'
+            }
+            post {
+                always { junit '**/build/test-results/test/*.xml' }
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                script {
+                    def services = [
+                        [name: 'auth',         dockerfile: 'docker/Dockerfile.auth'],
+                        [name: 'identity',     dockerfile: 'docker/Dockerfile.identity'],
+                        [name: 'form',         dockerfile: 'docker/Dockerfile.form'],
+                        [name: 'promotion',    dockerfile: 'docker/Dockerfile.promotion'],
+                        [name: 'notification', dockerfile: 'docker/Dockerfile.notification'],
+                        [name: 'gateway',      dockerfile: 'docker/Dockerfile.gateway']
+                    ]
+                    services.each { svc ->
+                        def image = "${REGISTRY}/circleguard-${svc.name}:${IMAGE_TAG}"
+                        sh "docker build -f ${svc.dockerfile} -t ${image} ."
+                        sh "docker push ${image}"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Stage') {
+            steps {
+                script {
+                    sh "kubectl apply -f k8s/configmap.yaml -n ${NAMESPACE}"
+                    def services = ['auth', 'identity', 'form', 'promotion', 'notification', 'gateway']
+                    services.each { svc ->
+                        sh """
+                            kubectl set image deployment/${svc}-service \
+                                ${svc}-service=${REGISTRY}/circleguard-${svc}:${IMAGE_TAG} \
+                                -n ${NAMESPACE} 2>/dev/null || \
+                            kubectl apply -f k8s/${svc}-service/ -n ${NAMESPACE}
+                        """
+                    }
+                    sh "kubectl rollout status deployment/auth-service -n ${NAMESPACE} --timeout=180s"
+                    sh "kubectl rollout status deployment/promotion-service -n ${NAMESPACE} --timeout=240s"
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            steps {
+                script {
+                    sh "kubectl port-forward svc/auth-service 8180:8180 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/gateway-service 8087:8087 -n ${NAMESPACE} &"
+                    sh "sleep 5"
+
+                    sh './gradlew :services:circleguard-gateway-service:test \
+                                  --tests "com.circleguard.gateway.service.JwtGatewayValidationIntegrationTest" \
+                                  --tests "com.circleguard.gateway.service.QrStatusCacheIntegrationTest" \
+                                  --no-daemon'
+                    sh './gradlew :services:circleguard-promotion-service:test \
+                                  --tests "com.circleguard.promotion.listener.SurveyKafkaIntegrationTest" \
+                                  --no-daemon'
+                    sh './gradlew :services:circleguard-notification-service:test \
+                                  --tests "com.circleguard.notification.service.StatusChangeNotificationIntegrationTest" \
+                                  --no-daemon'
+                    sh './gradlew :services:circleguard-form-service:test \
+                                  --tests "com.circleguard.form.controller.SurveyPersistenceIntegrationTest" \
+                                  --no-daemon'
+                    sh './gradlew :services:circleguard-identity-service:test \
+                                  --tests "com.circleguard.identity.util.AnonymizedIdentityIntegrationTest" \
+                                  --no-daemon'
+                }
+            }
+            post {
+                always {
+                    junit '**/build/test-results/test/*.xml'
+                    sh "pkill -f 'kubectl port-forward' || true"
+                }
+            }
+        }
+
+        stage('E2E Tests') {
+            steps {
+                script {
+                    sh "kubectl port-forward svc/auth-service 8180:8180 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/form-service 8086:8086 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/gateway-service 8087:8087 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/promotion-service 8088:8088 -n ${NAMESPACE} &"
+                    sh "kubectl port-forward svc/notification-service 8082:8082 -n ${NAMESPACE} &"
+                    sh "sleep 8"
+
+                    sh """
+                        cd tests/e2e
+                        pip install -r requirements.txt -q
+                        pytest . -v --html=e2e_stage_report.html --self-contained-html
+                    """
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'tests/e2e',
+                        reportFiles: 'e2e_stage_report.html',
+                        reportName: 'E2E Test Report - Stage'
+                    ])
+                    sh "pkill -f 'kubectl port-forward' || true"
+                }
+            }
+        }
+    }
+
+    post {
+        failure { echo "Stage pipeline FAILED on build ${BUILD_NUMBER}" }
+        success { echo "Stage pipeline SUCCESS - deployed to namespace: ${NAMESPACE}" }
+    }
+}
