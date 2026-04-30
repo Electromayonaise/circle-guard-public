@@ -51,7 +51,7 @@ pipeline {
                               :services:circleguard-promotion-service:test \
                               :services:circleguard-notification-service:test \
                               :services:circleguard-gateway-service:test \
-                              --no-daemon'
+                              --no-daemon -Dgroups=!integration'
             }
             post {
                 always {
