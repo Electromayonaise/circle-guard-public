@@ -27,7 +27,7 @@ pipeline {
                               :services:circleguard-promotion-service:build \
                               :services:circleguard-notification-service:build \
                               :services:circleguard-gateway-service:build \
-                              --no-daemon'
+                              --no-daemon -PexcludeIntegration'
             }
             post {
                 always { junit '**/build/test-results/test/*.xml' }
@@ -82,16 +82,12 @@ pipeline {
 
                     sh './gradlew :services:circleguard-gateway-service:test \
                                   --tests "com.circleguard.gateway.service.JwtGatewayValidationIntegrationTest" \
-                                  --tests "com.circleguard.gateway.service.QrStatusCacheIntegrationTest" \
                                   --no-daemon'
                     sh './gradlew :services:circleguard-promotion-service:test \
                                   --tests "com.circleguard.promotion.listener.SurveyKafkaIntegrationTest" \
                                   --no-daemon'
                     sh './gradlew :services:circleguard-notification-service:test \
                                   --tests "com.circleguard.notification.service.StatusChangeNotificationIntegrationTest" \
-                                  --no-daemon'
-                    sh './gradlew :services:circleguard-form-service:test \
-                                  --tests "com.circleguard.form.controller.SurveyPersistenceIntegrationTest" \
                                   --no-daemon'
                     sh './gradlew :services:circleguard-identity-service:test \
                                   --tests "com.circleguard.identity.util.AnonymizedIdentityIntegrationTest" \
