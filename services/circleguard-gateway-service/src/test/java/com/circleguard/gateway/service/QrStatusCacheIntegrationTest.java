@@ -3,6 +3,7 @@ package com.circleguard.gateway.service;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
 @Testcontainers
+@Tag("integration")
 class QrStatusCacheIntegrationTest {
 
     @Container
