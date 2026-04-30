@@ -115,13 +115,16 @@ pipeline {
                         [name: 'gateway-service',      port: 8087]
                     ]
                     services.each { svc ->
+                        def pod = "smoke-${svc.name.replace('-service','')}-${BUILD_NUMBER}"
                         sh """
-                            kubectl run smoke-${svc.name.replace('-service','')}-${BUILD_NUMBER} \
+                            kubectl run ${pod} \
                                 --image=busybox:1.36 \
                                 --restart=Never \
-                                --rm \
                                 -n ${NAMESPACE} \
-                                -- nc -zv ${svc.name} ${svc.port}
+                                -- nc -zv ${svc.name} ${svc.port} || true
+                            sleep 8
+                            kubectl logs ${pod} -n ${NAMESPACE} 2>/dev/null || true
+                            kubectl delete pod/${pod} -n ${NAMESPACE} --ignore-not-found=true
                         """
                     }
                 }
