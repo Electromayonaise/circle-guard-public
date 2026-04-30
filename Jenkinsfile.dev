@@ -7,6 +7,7 @@ pipeline {
         SERVICES                       = "auth identity form promotion notification gateway"
         IMAGE_TAG                      = "dev-${BUILD_NUMBER}"
         TESTCONTAINERS_RYUK_DISABLED   = "true"
+        TESTCONTAINERS_HOST_OVERRIDE   = "172.17.0.1"
         DOCKER_HOST                    = "unix:///var/run/docker.sock"
     }
 
