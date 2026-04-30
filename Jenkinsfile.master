@@ -2,10 +2,12 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY  = "localhost:5000"
-        NAMESPACE = "master"
-        VERSION   = ""
-        IMAGE_TAG = ""
+        REGISTRY                       = "localhost:5000"
+        NAMESPACE                      = "master"
+        VERSION                        = ""
+        IMAGE_TAG                      = ""
+        TESTCONTAINERS_RYUK_DISABLED   = "true"
+        DOCKER_HOST                    = "unix:///var/run/docker.sock"
     }
 
     stages {

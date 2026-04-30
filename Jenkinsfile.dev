@@ -2,10 +2,12 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY   = "localhost:5000"
-        NAMESPACE  = "dev"
-        SERVICES   = "auth identity form promotion notification gateway"
-        IMAGE_TAG  = "dev-${BUILD_NUMBER}"
+        REGISTRY                       = "localhost:5000"
+        NAMESPACE                      = "dev"
+        SERVICES                       = "auth identity form promotion notification gateway"
+        IMAGE_TAG                      = "dev-${BUILD_NUMBER}"
+        TESTCONTAINERS_RYUK_DISABLED   = "true"
+        DOCKER_HOST                    = "unix:///var/run/docker.sock"
     }
 
     stages {
