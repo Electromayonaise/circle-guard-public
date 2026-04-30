@@ -1,6 +1,6 @@
 spring:
   kafka:
-    bootstrap-servers: ${spring.embedded.kafka.brokers}
+    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
     consumer:
       auto-offset-reset: earliest
   mail:
