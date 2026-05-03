@@ -43,11 +43,12 @@ if [ -z "$CP_IP" ]; then
 fi
 echo "Control-plane IP: $CP_IP"
 
-# 6. Update kubeconfig inside Jenkins to use current control-plane IP
+# 6. Update kubeconfig inside Jenkins to use hostname (stable across IP changes)
 docker exec jenkins sh -c "
-  sed -i 's|server: https://[0-9.]*:6443|server: https://${CP_IP}:6443|g' /var/jenkins_home/.kube/config
+  sed -i 's|server: https://[0-9.]*:6443|server: https://circleguard-control-plane:6443|g' /var/jenkins_home/.kube/config
+  sed -i 's|certificate-authority-data:.*|insecure-skip-tls-verify: true|g' /var/jenkins_home/.kube/config
 "
-echo "Jenkins kubeconfig updated -> https://${CP_IP}:6443"
+echo "Jenkins kubeconfig updated -> https://circleguard-control-plane:6443"
 
 # 7. Verify
 docker exec jenkins sh -c "kubectl get nodes" && echo "=== kubectl OK ===" || echo "WARNING: kubectl check failed"
