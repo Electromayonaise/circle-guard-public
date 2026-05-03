@@ -95,13 +95,6 @@ public class HealthStatusService {
         // Always persist source user status to Redis regardless of contact propagation result
         redisTemplate.opsForValue().set(STATUS_KEY_PREFIX + anonymousId, status);
 
-        // Always broadcast the status change
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("anonymousId", anonymousId);
-        payload.put("status", status);
-        payload.put("timestamp", System.currentTimeMillis());
-        kafkaTemplate.send(TOPIC_STATUS_CHANGED, anonymousId, payload);
-
         if (result.isPresent()) {
             Map<String, String> cacheUpdates = new HashMap<>();
             @SuppressWarnings("unchecked")
@@ -118,6 +111,13 @@ public class HealthStatusService {
                 log.info("Batch updating {} Redis entries based on consolidated propagation", cacheUpdates.size());
                 updateRedisInBatches(cacheUpdates);
             }
+
+            // Broadcast change
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("anonymousId", anonymousId);
+            payload.put("status", status);
+            payload.put("timestamp", System.currentTimeMillis());
+            kafkaTemplate.send(TOPIC_STATUS_CHANGED, anonymousId, payload);
 
             // Story 5.4: Automated Room Reservation Cancellation
             checkAndBroadcastFencedCircles(anonymousId);
