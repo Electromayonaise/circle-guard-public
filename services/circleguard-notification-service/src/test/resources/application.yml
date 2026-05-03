@@ -12,6 +12,11 @@ spring:
           auth: false
           starttls:
             enable: false
+management:
+  health:
+    mail:
+      enabled: false
+
 auth:
   api:
     url: http://localhost:9999
