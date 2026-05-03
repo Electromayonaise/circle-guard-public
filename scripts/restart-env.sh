@@ -28,10 +28,14 @@ EOF
 done
 echo "Containerd mirrors updated"
 
-# 3. Reconnect Jenkins to kind network (safe to run even if already connected)
+# 3. Fix Docker socket permissions (reset by Docker Desktop on restart)
+docker exec -u root jenkins sh -c "chmod 666 /var/run/docker.sock"
+echo "Docker socket permissions fixed"
+
+# 4. Reconnect Jenkins to kind network (safe to run even if already connected)
 docker network connect kind jenkins 2>/dev/null && echo "Jenkins connected to kind network" || echo "Jenkins already on kind network"
 
-# 4. Get current control-plane IP
+# 5. Get current control-plane IP
 CP_IP=$(docker inspect circleguard-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}' 2>/dev/null)
 if [ -z "$CP_IP" ]; then
   echo "ERROR: could not get control-plane IP"
@@ -39,13 +43,13 @@ if [ -z "$CP_IP" ]; then
 fi
 echo "Control-plane IP: $CP_IP"
 
-# 5. Update kubeconfig inside Jenkins to use current control-plane IP
+# 6. Update kubeconfig inside Jenkins to use current control-plane IP
 docker exec jenkins sh -c "
-  sed -i 's|server: https://[0-9.]*:6443|server: https://${CP_IP}:6443|g' /root/.kube/config
+  sed -i 's|server: https://[0-9.]*:6443|server: https://${CP_IP}:6443|g' /var/jenkins_home/.kube/config
 "
 echo "Jenkins kubeconfig updated -> https://${CP_IP}:6443"
 
-# 6. Verify
+# 7. Verify
 docker exec jenkins sh -c "kubectl get nodes" && echo "=== kubectl OK ===" || echo "WARNING: kubectl check failed"
 
 echo "=== Done. Jenkins available at http://localhost:8090 ==="
