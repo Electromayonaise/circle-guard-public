@@ -30,5 +30,10 @@ qr:
   secret: "my-qr-secret-key-for-dev-1234567890"
   expiration: 300
 
+management:
+  health:
+    mail:
+      enabled: false
+
 server:
   port: 8082
