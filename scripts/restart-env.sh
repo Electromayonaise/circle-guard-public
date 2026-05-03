@@ -5,7 +5,7 @@ set -e
 echo "=== CircleGuard environment recovery ==="
 
 # 1. Get current Kind registry IP
-REGISTRY_IP=$(docker inspect circleguard-registry --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null | head -1)
+REGISTRY_IP=$(docker inspect circleguard-registry --format '{{.NetworkSettings.Networks.kind.IPAddress}}' 2>/dev/null)
 if [ -z "$REGISTRY_IP" ]; then
   echo "ERROR: circleguard-registry container not found or not running"
   exit 1
