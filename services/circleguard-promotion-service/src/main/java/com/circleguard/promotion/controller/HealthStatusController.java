@@ -19,7 +19,7 @@ public class HealthStatusController {
         String anonymousId = (String) request.get("anonymousId");
         String status = (String) request.get("status");
         boolean override = request.containsKey("adminOverride") && (boolean) request.get("adminOverride");
-        
+
         statusService.updateStatus(anonymousId, status, override);
         return ResponseEntity.ok().build();
     }
@@ -47,5 +47,11 @@ public class HealthStatusController {
 
         statusService.resolveStatus(anonymousId, override);
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/status/{anonymousId}")
+    public ResponseEntity<Map<String, Object>> getStatus(@PathVariable String anonymousId) {
+        String status = statusService.getCachedStatus(anonymousId);
+        return ResponseEntity.ok(Map.of("status", status != null ? status : "ACTIVE"));
     }
 }

@@ -13,8 +13,11 @@ public class GateController {
     private final QrValidationService validationService;
 
     @PostMapping("/validate")
-    public ResponseEntity<QrValidationService.ValidationResult> validate(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> validate(@RequestBody Map<String, String> request) {
         String token = request.get("token");
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "token is required"));
+        }
         return ResponseEntity.ok(validationService.validateToken(token));
     }
 }

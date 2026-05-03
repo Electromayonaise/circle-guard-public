@@ -8,16 +8,16 @@ class TestAdminCorrectionFlow:
         anonymous_id = "admin-correction-test-user"
 
         response = requests.post(
-            f"{PROMOTION_URL}/api/v1/admin/status/correct",
+            f"{PROMOTION_URL}/api/v1/health/report",
             headers=admin_headers,
-            json={"anonymousId": anonymous_id, "status": "ACTIVE", "reason": "Administrative correction"},
+            json={"anonymousId": anonymous_id, "status": "ACTIVE", "adminOverride": True},
             timeout=10
         )
         assert response.status_code in (200, 202, 204)
 
     def test_non_admin_cannot_correct_status(self, auth_headers):
         response = requests.post(
-            f"{PROMOTION_URL}/api/v1/admin/status/correct",
+            f"{PROMOTION_URL}/api/v1/health/report",
             headers=auth_headers,
             json={"anonymousId": "some-user", "status": "ACTIVE"},
             timeout=10
