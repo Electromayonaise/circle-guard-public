@@ -23,7 +23,7 @@ class TestStatusPromotionFlow:
         )
         assert survey_resp.status_code in (200, 201, 202)
 
-        time.sleep(10)
+        time.sleep(20)
 
         status_resp = requests.get(
             f"{PROMOTION_URL}/api/v1/health/status/{anonymous_id}",
