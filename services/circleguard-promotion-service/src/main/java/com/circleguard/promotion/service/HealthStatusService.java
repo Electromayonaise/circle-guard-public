@@ -5,7 +5,6 @@ import com.circleguard.promotion.repository.graph.UserNodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -93,10 +92,18 @@ public class HealthStatusService {
                 .bind(threshold).to("threshold")
                 .fetch().one();
 
+        // Always persist source user status to Redis regardless of contact propagation result
+        redisTemplate.opsForValue().set(STATUS_KEY_PREFIX + anonymousId, status);
+
+        // Always broadcast the status change
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("anonymousId", anonymousId);
+        payload.put("status", status);
+        payload.put("timestamp", System.currentTimeMillis());
+        kafkaTemplate.send(TOPIC_STATUS_CHANGED, anonymousId, payload);
+
         if (result.isPresent()) {
             Map<String, String> cacheUpdates = new HashMap<>();
-            cacheUpdates.put(STATUS_KEY_PREFIX + anonymousId, status);
-            
             @SuppressWarnings("unchecked")
             List<Map<String, String>> affected = (List<Map<String, String>>) result.get().get("affectedContacts");
             if (affected != null) {
@@ -107,16 +114,10 @@ public class HealthStatusService {
                 });
             }
 
-            log.info("Batch updating {} Redis entries based on consolidated propagation", cacheUpdates.size());
-            updateRedisInBatches(cacheUpdates);
-
-            // Broadcast change
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("anonymousId", anonymousId);
-            payload.put("status", status);
-            payload.put("timestamp", System.currentTimeMillis());
-
-            kafkaTemplate.send(TOPIC_STATUS_CHANGED, anonymousId, payload);
+            if (!cacheUpdates.isEmpty()) {
+                log.info("Batch updating {} Redis entries based on consolidated propagation", cacheUpdates.size());
+                updateRedisInBatches(cacheUpdates);
+            }
 
             // Story 5.4: Automated Room Reservation Cancellation
             checkAndBroadcastFencedCircles(anonymousId);
@@ -131,7 +132,6 @@ public class HealthStatusService {
                 priorityPayload.put("affectedCount", affectedCount);
                 priorityPayload.put("timestamp", System.currentTimeMillis());
                 priorityPayload.put("eventType", "CONFIRMED".equals(status) ? "CONFIRMED_CASE" : "LARGE_OUTBREAK");
-                
                 kafkaTemplate.send("alert.priority", anonymousId, priorityPayload);
             }
         }
@@ -170,7 +170,6 @@ public class HealthStatusService {
         // Method used for programmatic eviction
     }
 
-    @Cacheable(cacheNames = "userStatus", key = "#anonymousId")
     public String getCachedStatus(String anonymousId) {
         return redisTemplate.opsForValue().get(STATUS_KEY_PREFIX + anonymousId);
     }
