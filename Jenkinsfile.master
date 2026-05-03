@@ -27,7 +27,10 @@ pipeline {
                     def major = parts[0]
                     def minor = parts[1]
                     def patch = parts[2]
-                    def commitsSinceTag = sh(script: "git log ${lastTag}..HEAD --oneline", returnStdout: true).trim()
+                    def tagExists = sh(script: "git rev-parse --verify ${lastTag} 2>/dev/null", returnStatus: true) == 0
+                    def commitsSinceTag = tagExists
+                        ? sh(script: "git log ${lastTag}..HEAD --oneline", returnStdout: true).trim()
+                        : sh(script: "git log --oneline", returnStdout: true).trim()
 
                     boolean hasBreaking = commitsSinceTag.contains('BREAKING CHANGE')
                     boolean hasFeat     = (commitsSinceTag =~ /feat(\(.+\))?:/).asBoolean()
