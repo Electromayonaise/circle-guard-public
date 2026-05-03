@@ -30,7 +30,14 @@ public class HealthSurveyService {
         
         boolean hasSymptoms = activeQuestionnaire
                 .map(q -> symptomMapper.hasSymptoms(survey, q))
-                .orElse(false);
+                .orElseGet(() -> {
+                    // Fallback: check named response keys (e.g. "fever":"YES") when no questionnaire is active
+                    Map<String, Object> r = survey.getResponses();
+                    if (r == null) return false;
+                    return "YES".equalsIgnoreCase(String.valueOf(r.getOrDefault("fever", "")))
+                        || "YES".equalsIgnoreCase(String.valueOf(r.getOrDefault("cough", "")))
+                        || "YES".equalsIgnoreCase(String.valueOf(r.getOrDefault("shortness_of_breath", "")));
+                });
         
         // Compatibility: update the legacy fields if they are missing in request but present in responses
         if (survey.getHasFever() == null) survey.setHasFever(hasSymptoms);

@@ -15,8 +15,8 @@ class TestCampusEntryFlow:
         assert login_resp.status_code == 200
         jwt_token = login_resp.json()["token"]
 
-        qr_resp = requests.post(
-            f"{AUTH_URL}/api/v1/auth/qr-token",
+        qr_resp = requests.get(
+            f"{AUTH_URL}/api/v1/auth/qr/generate",
             headers={"Authorization": f"Bearer {jwt_token}"},
             timeout=10
         )
