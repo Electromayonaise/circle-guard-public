@@ -55,8 +55,8 @@ public class HealthStatusService {
         long threshold = System.currentTimeMillis() - ((long)settings.getEncounterWindowDays() * 24 * 60 * 60 * 1000);
 
         // Robust Multi-Tier High-Confidence Propagation Cypher - Augmented with isValid checks and timing
-        String unifiedQuery = 
-            "MATCH (source:User {anonymousId: $id}) " +
+        String unifiedQuery =
+            "MERGE (source:User {anonymousId: $id}) " +
             "SET source.status = $status, source.statusUpdatedAt = timestamp() " +
             "WITH source " +
             "OPTIONAL MATCH (source)-[r1]-(c1:User) " +
