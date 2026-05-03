@@ -114,6 +114,7 @@ pipeline {
 
                     sh """
                         cd tests/e2e
+                        rm -rf .venv
                         python3 -m venv .venv
                         .venv/bin/pip install -r requirements.txt -q
                         .venv/bin/pytest . -v --html=e2e_stage_report.html --self-contained-html
