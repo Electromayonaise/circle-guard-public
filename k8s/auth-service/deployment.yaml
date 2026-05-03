@@ -37,8 +37,6 @@ spec:
                 configMapKeyRef:
                   name: circleguard-config
                   key: JWT_EXPIRATION
-            - name: SERVICES_IDENTITY_URL
-              value: "http://identity-service:8083"
           readinessProbe:
             tcpSocket:
               port: 8180
