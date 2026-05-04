@@ -1,158 +1,102 @@
-# 🛡️ CircleGuard Monorepo
+# CircleGuard — Sistema de Trazabilidad de Salud Universitaria
 
-**Absolute Privacy. High-Speed Containment. Secure Campus.**
-
-CircleGuard is a state-of-the-art university contact tracing and fencing system designed to identify interconnected contact groups ("Circles") and apply rapid health fences while preserving individual anonymity.
+Sistema de control de acceso y trazabilidad de contactos para campus universitario, implementado como arquitectura de microservicios con pipelines CI/CD completos.
 
 ---
 
-## 🌟 Vision & Mission
+## Entrega Taller 2: Pruebas y Lanzamiento
 
-Our vision is a university campus where health containment speed outpaces lab confirmation timelines without compromising student privacy. CircleGuard leverages campus-native intelligence—class schedules and WiFi infrastructure—to deliver a human-validated, graph-based protection ecosystem.
-
-### Key Differentiators
-- **Privacy-as-Code**: Zero real-name exposure outside a secure Health Center vault.
-- **Recursive Containment**: Status promotion cascades (Suspect → Probable → Confirmed) that trigger in milliseconds.
-- **Campus Integration**: Smart check-ins using existing WiFi AP triangulation and Bluetooth Low Energy (BLE).
+| Recurso | Enlace |
+|---|---|
+| Reporte completo con evidencias | [TALLER2_REPORTE.md](TALLER2_REPORTE.md) |
+| Video de presentación | https://youtu.be/ORIiPzjQvqI |
 
 ---
 
-## 📊 Success Metrics
+## Servicios
 
-| Metric | Target | Measurement |
-|:---|:---|:---|
-| **Containment Speed** | < 60 Seconds | Automated test of promotion engine cascade |
-| **Privacy Compliance** | 100% Anonymity | Penetration test on graph database (Zero real names) |
-| **Check-in Adoption** | > 70% | Analytics on scheduled class contact validation |
-| **False Positive Rate** | < 15% | Post-fence surveys of actual vs. suspected contact |
-| **System Uptime** | 99.5% | 7:00 AM – 10:00 PM (Academic Peak Hours) |
-
----
-
-## 🏗️ Architecture Overview
-
-CircleGuard follows a **Microservice Architecture** built on a **Hybrid Data Model**.
-
-### Core Engine
-1. **Status Promotion Machine**: Uses **Neo4j** for recursive graph traversals to identify contacts within a 14-day temporal window.
-2. **Anonymization Vault**: A segregated **PostgreSQL** vault handles salted-hash identity mapping, compliant with **FERPA** regulations.
-3. **Event-Driven Core**: **Apache Kafka** manages asynchronous status changes, audit logs, and notification dispatches.
-
-### Services Directory
-- **Auth Service**: Dual-chain LDAP (University) / Local (Guest) auth with Dynamic RBAC.
-- **Identity Service**: Cryptographic vault for anonymizing real identities.
-- **Promotion Service**: The status engine (Recursive Graph Processing).
-- **Notification Service**: Multi-channel dispatcher (Push/Email/SMS).
-- **Form Service**: Dynamic health questionnaire engine.
-- **Gateway Service**: Campus entry validation via signed, time-limited QR tokens.
-- **Dashboard Service**: Geospatial hotspot analytics (Privacy-preserving).
-- **File Service**: Secure certificate and document storage (S3-compatible).
+| Servicio | Puerto | Responsabilidad |
+|---|---|---|
+| auth-service | 8180 | Autenticación, emisión de JWT y generación de tokens QR |
+| identity-service | 8085 | Bóveda criptográfica de identidades reales |
+| form-service | 8086 | Recepción y validación de encuestas de síntomas |
+| promotion-service | 8088 | Motor de estados de salud sobre grafo Neo4j |
+| notification-service | 8082 | Despacho de alertas multi-canal |
+| gateway-service | 8087 | Validación de QR en puntos de acceso al campus |
 
 ---
 
-## 🛠️ Technical Stack
+## Decisiones Arquitectónicas
 
-| Layer | Technology | Rationale |
-|:---|:---|:---|
-| **Backend** | Spring Boot 4 / Java 21 | Enterprise-grade maturity & low-latency Jakarta EE support. |
-| **Graph DB** | Neo4j 5.26 | High-performance recursive traversals unreachable with SQL. |
-| **Relational DB**| PostgreSQL 16 | ACID compliant storage for identity and configuration. |
-| **Message Bus** | Apache Kafka 7.6 | Persistent, audit-trailed event log for status dispatches. |
-| **Caching** | Redis 7.2 | L2 distributed cache for rapid entry-gate status validation. |
-| **Mobile/Web** | Expo (React Native) | Unified codebase across iOS, Android, and Browser. |
-| **Infra** | Kubernetes | Orchestration for high availability and auto-scaling. |
+### Monorepo Gradle multi-módulo
+
+Todos los servicios viven en un único repositorio con un `build.gradle` raíz que coordina la compilación. Esto simplifica la gestión de versiones de dependencias compartidas y permite ejecutar todos los builds y tests desde un único comando de Gradle. La alternativa (repositorios separados) añadiría overhead de sincronización de versiones sin beneficio real en esta escala.
+
+### Kubernetes local con Kind (Kubernetes in Docker)
+
+Se eligió Kind en lugar de Minikube o k3s por dos razones:
+
+1. **Compatibilidad con Docker Desktop en Windows**: Kind corre los nodos del cluster como contenedores Docker, lo que lo hace nativo al entorno de desarrollo sin requerir una VM adicional.
+2. **Soporte multi-nodo liviano**: Permite simular un cluster real con múltiples namespaces sin el overhead de una VM completa.
+
+El cluster es **monocluster** con tres namespaces (`dev`, `stage`, `master`) en lugar de tres clusters separados. Esta decisión reduce el consumo de recursos en el entorno local y es suficiente para demostrar el aislamiento entre ambientes mediante namespaces de Kubernetes.
+
+### Registry Docker local (`localhost:5000`)
+
+Se usa un registry Docker local en lugar de Docker Hub o un registry cloud para eliminar la dependencia de red externa durante el CI. Las imágenes se construyen, etiquetan y consumen dentro del mismo host, haciendo el pipeline reproducible sin credenciales externas. Kind está configurado para que sus nodos confíen en este registry inseguro (HTTP).
+
+### Jenkins en contenedor Docker con socket compartido
+
+Jenkins corre como contenedor Docker con el socket `/var/run/docker.sock` montado. Esto le permite construir imágenes Docker y ejecutar Testcontainers directamente desde el agente de Jenkins sin necesidad de Docker-in-Docker (DinD), que introduce complejidad adicional de red y privilegios. El tradeoff es que Jenkins tiene acceso al daemon Docker del host, lo cual es aceptable en un entorno de desarrollo local.
+
+### Bare repo Git local como fuente de Jenkins
+
+Jenkins lee el código desde un repositorio bare local en `/var/jenkins_home/repos/circleguard.git` en lugar de GitHub. Esto elimina la dependencia de conectividad externa para los pipelines y hace el entorno completamente autónomo. Los cambios se propagan al bare repo mediante `git format-patch` + `git am` desde el clon de trabajo.
+
+### Tres pipelines con responsabilidades distintas
+
+| Pipeline | Pruebas incluidas | Propósito |
+|---|---|---|
+| `Jenkinsfile.dev` | Unitarias (62) | Feedback rápido por commit |
+| `Jenkinsfile.stage` | Unitarias + Integración (26) + E2E (16) | Validación pre-release |
+| `Jenkinsfile.master` | Todo + Rendimiento (Locust) | Release versionado con SemVer |
+
+Las pruebas de integración se excluyen de dev con `-PexcludeIntegration` para mantener el ciclo de feedback bajo (< 3 min). Stage y master las ejecutan porque tienen más tiempo disponible y el costo de un fallo allí es mayor.
+
+### Testcontainers con IP bridge en lugar de host mapeado
+
+Las pruebas de integración que usan Testcontainers (Redis, PostgreSQL, Neo4j) conectan al contenedor via su IP en la red bridge de Docker (`172.17.x.x`) en lugar de usar el puerto mapeado en el host. Esto resuelve un problema de compatibilidad con el proxy DNAT de Docker Desktop en Windows, donde `redis.getHost()` retorna null en la JVM forkeada de Gradle.
+
+### Versionado semántico automático (SemVer) en master
+
+El pipeline master calcula la versión analizando los mensajes de commit desde el último tag (`feat:` → minor, `fix:` → patch, `BREAKING CHANGE` → major) siguiendo la convención Conventional Commits. Esto elimina la decisión manual de versión y hace el historial del proyecto legible.
 
 ---
 
-## 🗺️ Roadmap
+## Stack tecnológico
 
-### Phase 1: MVP — The Intelligence Core (Current)
-- [x] Status Promotion Machine (Suspect → Probable → Confirmed).
-- [x] Temporal graph with 14-day TTL edges.
-- [x] Multi-channel fence notifications (Push/Email/SMS).
-- [ ] Health Center de-identification console.
-
-### Phase 2: Growth — Spatial Intelligence
-- [ ] WiFi AP triangulation integration.
-- [ ] Campus entry validation (Gatekeeper) QR integration.
-- [ ] LMS integration for "Remote Attendance" status automation.
-
-### Phase 3: Vision — Full Ecosystem
-- [ ] Off-campus circle detection via P2P Bluetooth.
-- [ ] Global Health Dashboard with hotspot visualization.
-- [ ] Lab API bridge for automated test result ingestion.
+| Capa | Tecnología |
+|---|---|
+| Backend | Spring Boot 3.2 / Java 21 |
+| Grafo | Neo4j 5 |
+| Relacional | PostgreSQL 16 |
+| Cache | Redis 7.2 |
+| Mensajería | Apache Kafka |
+| CI/CD | Jenkins (contenedor Docker) |
+| Orquestación | Kubernetes (Kind) |
+| Build | Gradle 8 multi-módulo |
+| Tests de carga | Locust 2.28 |
+| Tests E2E | Python / pytest |
+| Tests de integración | Testcontainers + EmbeddedKafka |
 
 ---
 
-## 💻 Local Development
+## Ejecutar el entorno
 
-### 1. Infrastructure
-Ensure Docker is installed, then start the middleware stack:
+Si el entorno se reinició (Docker Desktop reiniciado), restaurar la conectividad con:
+
 ```bash
-docker-compose -f docker-compose.dev.yml up -d
-```
-*Middleware includes: PostgreSQL, Neo4j, Kafka, Zookeeper, Redis, and OpenLDAP.*
-
-### 2. Build & Run
-CircleGuard uses Gradle for parallel builds across services:
-```bash
-# Start all microservices in parallel
-./gradlew bootRun --parallel
-
-# Start a specific service
-./gradlew :services:<service-name>:bootRun
+bash scripts/restart-env.sh
 ```
 
-### 3. API Exploration
-Every service exposes an OpenAPI 3.0 interface. Once running, visit:
-`http://localhost:<service-port>/swagger-ui/index.html`
-
----
-
-## 📱 Frontend Development
-
-The frontend is built using **Expo (React Native)**, supporting iOS, Android, and Web from a single codebase located in `/mobile`.
-
-### 1. Prerequisites
-Ensure you have Node.js installed and dependencies loaded:
-```bash
-cd mobile
-npm install
-```
-
-### 2. Run the Application
-You can run the app in various modes depending on your target platform:
-
-| Platform | Command | Notes |
-|:---|:---|:---|
-| **Development Menu** | `npm run start` | Opens the Expo Go start-up menu. |
-| **Android** | `npm run android` | Requires Android Studio / Emulator or a connected device. |
-| **iOS** | `npm run ios` | Requires macOS with Xcode / Simulator installed. |
-| **Web Browser** | `npm run web` | Launches the dashboard/app in your default browser. |
-
-### 3. Testing
-To run frontend unit and component tests:
-```bash
-npm run test
-```
-
----
-
-## 🧪 Testing
-
-We maintain high system integrity via multi-level testing:
-
-| Command | Scope |
-|:---|:---|
-| `./gradlew test` | Full system suite (Unit + Integration) |
-| `./gradlew :services:<name>:test` | Single service testing |
-
-**Note**: Integration tests use **Testcontainers** to spawn ephemeral Neo4j and PostgreSQL instances for zero-side-effect validation.
-
----
-
-## 🔐 Privacy & Compliance
-
-- **FERPA Compliance**: Student identities are never stored in the contact graph.
-- **Right to be Forgotten**: Users can trigger complete data purging via the Identity Vault.
-- **Temporal Privacy**: All contact edges are automatically purged after 14 days.
+Jenkins disponible en http://localhost:8090

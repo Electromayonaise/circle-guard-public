@@ -251,12 +251,12 @@ pipeline {
 
         stage('Tag Release') {
             steps {
-                sh """
+                sh '''
                     git config user.email "jenkins@circleguard.local"
                     git config user.name "Jenkins CI"
-                    git tag -a ${env.VERSION} -m "Release ${env.VERSION} -- Build #${BUILD_NUMBER}"
-                    git push origin ${env.VERSION} || echo "Push tag requires remote access"
-                """
+                    git tag -a $VERSION -m "Release $VERSION -- Build #$BUILD_NUMBER"
+                    git push origin $VERSION || echo "Push tag requires remote access"
+                '''
             }
         }
     }
